@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Star Trail Game</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            border: 2px solid #333;
+        }
+        #score {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-size: 24px;
+        }
+        #message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 24px;
+            text-align: center;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="score">Score: 0 Lives: 2</div>
+    <div id="message"></div>
+    <canvas id="gameCanvas" width="600" height="600"></canvas>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const messageElement = document.getElementById('message');
+
+        const GRID_SIZE = 30;
+        const GRID_COUNT = canvas.width / GRID_SIZE;
+        const RESPAWN_TIME = 3;
+        const MOVE_INTERVAL = 150; // Add delay between moves (in milliseconds)
+        let lastMoveTime = 0;
+
+        class Star {
+            constructor() {
+                this.reset();
+                this.hue = 0;
+                this.isRespawning = false;
+                this.respawnStart = 0;
+            }
+
+            reset() {
+                this.positions = [{x: Math.floor(GRID_COUNT/2), y: Math.floor(GRID_COUNT/2)}];
+                this.direction = {x: 1, y: 0};
+                this.addSegment = false;
+            }
+
+            move() {
+                if (this.isRespawning) return;
+
+                const head = this.positions[0];
+                const newPosition = {
+                    x: head.x + this.direction.x,
+                    y: head.y + this.direction.y
+                };
+
+                if (this.addSegment) {
+                    this.positions.unshift(newPosition);
+                    this.addSegment = false;
+                } else {
+                    this.positions.pop();
+                    this.positions.unshift(newPosition);
+                }
+
+                this.hue = (this.hue + 2) % 360;
+            }
+
+            draw() {
+                this.positions.forEach((pos, i) => {
+                    const color = `hsl(${(this.hue + i * 10) % 360}, 100%, 50%)`;
+                    const size = i === 0 ? GRID_SIZE/2 : GRID_SIZE/3;
+                    drawStar(
+                        pos.x * GRID_SIZE + GRID_SIZE/2,
+                        pos.y * GRID_SIZE + GRID_SIZE/2,
+                        size,
+                        color
+                    );
+                });
+            }
+
+            grow() {
+                this.addSegment = true;
+            }
+
+            startRespawn() {
+                this.isRespawning = true;
+                this.respawnStart = Date.now();
+            }
+
+            checkRespawn() {
+                if (this.isRespawning && Date.now() - this.respawnStart >= RESPAWN_TIME * 1000) {
+                    this.isRespawning = false;
+                    this.reset();
+                    return true;
+                }
+                return false;
+            }
+        }
+
+        function drawStar(x, y, size, color) {
+            ctx.beginPath();
+            for (let i = 0; i < 5; i++) {
+                // Outer points
+                let angle = (i * 2 * Math.PI / 5) - Math.PI / 2;
+                if (i === 0) {
+                    ctx.moveTo(x + size * Math.cos(angle), y + size * Math.sin(angle));
+                } else {
+                    ctx.lineTo(x + size * Math.cos(angle), y + size * Math.sin(angle));
+                }
+                // Inner points
+                angle += Math.PI / 5;
+                ctx.lineTo(
+                    x + size * 0.4 * Math.cos(angle),
+                    y + size * 0.4 * Math.sin(angle)
+                );
+            }
+            ctx.closePath();
+            ctx.fillStyle = color;
+            ctx.fill();
+        }
+
+        let star = new Star();
+        let food = {
+            x: Math.floor(Math.random() * GRID_COUNT),
+            y: Math.floor(Math.random() * GRID_COUNT)
+        };
+        let score = 0;
+        let lives = 2;
+        let gameOver = false;
+
+        function generateFood() {
+            do {
+                food.x = Math.floor(Math.random() * GRID_COUNT);
+                food.y = Math.floor(Math.random() * GRID_COUNT);
+            } while (star.positions.some(pos => pos.x === food.x && pos.y === food.y));
+        }
+
+        function checkCollision(pos1, pos2) {
+            return pos1.x === pos2.x && pos1.y === pos2.y;
+        }
+
+        function update() {
+            const currentTime = Date.now();
+            if (!gameOver && !star.isRespawning && currentTime - lastMoveTime >= MOVE_INTERVAL) {
+                star.move();
+                lastMoveTime = currentTime;
+                const head = star.positions[0];
+
+                // Wall collision
+                if (head.x < 0 || head.x >= GRID_COUNT || head.y < 0 || head.y >= GRID_COUNT) {
+                    lives--;
+                    if (lives > 0) {
+                        star.startRespawn();
+                    } else {
+                        gameOver = true;
+                    }
+                }
+
+                // Self collision
+                for (let i = 1; i < star.positions.length; i++) {
+                    if (checkCollision(head, star.positions[i])) {
+                        gameOver = true;
+                        break;
+                    }
+                }
+
+                // Food collision
+                if (checkCollision(head, food)) {
+                    star.grow();
+                    score++;
+                    generateFood();
+                }
+            }
+
+            if (star.checkRespawn()) {
+                generateFood();
+            }
+        }
+
+        function draw() {
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            star.draw();
+
+            // Draw food
+            drawStar(
+                food.x * GRID_SIZE + GRID_SIZE/2,
+                food.y * GRID_SIZE + GRID_SIZE/2,
+                GRID_SIZE/2,
+                'red'
+            );
+
+            scoreElement.textContent = `Score: ${score} Lives: ${lives}`;
+
+            if (star.isRespawning) {
+                const timeLeft = RESPAWN_TIME - (Date.now() - star.respawnStart) / 1000;
+                messageElement.textContent = `Respawning in: ${timeLeft.toFixed(1)}`;
+                messageElement.style.display = 'block';
+            } else if (gameOver) {
+                messageElement.textContent = 'Game Over!\nPress Space to restart';
+                messageElement.style.display = 'block';
+            } else {
+                messageElement.style.display = 'none';
+            }
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (gameOver) {
+                if (e.code === 'Space') {
+                    star = new Star();
+                    score = 0;
+                    lives = 2;
+                    gameOver = false;
+                    generateFood();
+                }
+            } else if (!star.isRespawning) {
+                switch (e.code) {
+                    case 'ArrowUp':
+                        if (star.direction.y !== 1) {
+                            star.direction = {x: 0, y: -1};
+                        }
+                        break;
+                    case 'ArrowDown':
+                        if (star.direction.y !== -1) {
+                            star.direction = {x: 0, y: 1};
+                        }
+                        break;
+                    case 'ArrowLeft':
+                        if (star.direction.x !== 1) {
+                            star.direction = {x: -1, y: 0};
+                        }
+                        break;
+                    case 'ArrowRight':
+                        if (star.direction.x !== -1) {
+                            star.direction = {x: 1, y: 0};
+                        }
+                        break;
+                }
+            }
+        });
+
+        gameLoop();
+    </script>
+</body>
+</html>
